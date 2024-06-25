@@ -16,8 +16,8 @@ font-size: 48px;
 const std::string default_template_string = R"({{output}})";
 } // namespace
 
-OutputMapping::OutputMapping(output_mapping_data *mapping_data_in,
-			     std::function<void()> update_handler_in, QWidget *parent)
+OutputMapping::OutputMapping(const output_mapping_data &mapping_data_in,
+			     update_handler_t update_handler_in, QWidget *parent)
 	: QDialog(parent),
 	  ui(new Ui::OutputMapping),
 	  mapping_data(mapping_data_in),
@@ -49,11 +49,11 @@ OutputMapping::OutputMapping(output_mapping_data *mapping_data_in,
 				ui->checkBox_unhide_Source->blockSignals(true);
 				// set the plainTextEdit_template and plainTextEdit_cssProps to the template_string and css_props of the selected row
 				ui->plainTextEdit_template->setPlainText(
-					this->mapping_data->mappings[row].template_string.c_str());
+					this->mapping_data.mappings[row].template_string.c_str());
 				ui->plainTextEdit_cssProps->setPlainText(
-					this->mapping_data->mappings[row].css_props.c_str());
+					this->mapping_data.mappings[row].css_props.c_str());
 				ui->checkBox_unhide_Source->setChecked(
-					this->mapping_data->mappings[row].unhide_output_source);
+					this->mapping_data.mappings[row].unhide_output_source);
 				ui->plainTextEdit_template->blockSignals(false);
 				ui->plainTextEdit_cssProps->blockSignals(false);
 				ui->checkBox_unhide_Source->blockSignals(false);
@@ -71,23 +71,23 @@ OutputMapping::OutputMapping(output_mapping_data *mapping_data_in,
 		// get the selected row
 		const auto row = ui->tableView->currentIndex().row();
 		// set the template_string of the selected row to the plainTextEdit_template text
-		this->mapping_data->mappings[row].template_string =
+		this->mapping_data.mappings[row].template_string =
 			ui->plainTextEdit_template->toPlainText().toStdString();
 		// call update_handler
-		this->update_handler();
+		this->update_handler(this->mapping_data);
 	});
 	connect(ui->plainTextEdit_cssProps, &QPlainTextEdit::textChanged, [this]() {
 		// get the selected row
 		const auto row = ui->tableView->currentIndex().row();
 		// set the css_props of the selected row to the plainTextEdit_cssProps text
-		this->mapping_data->mappings[row].css_props =
+		this->mapping_data.mappings[row].css_props =
 			ui->plainTextEdit_cssProps->toPlainText().toStdString();
 		// call update_handler
-		this->update_handler();
+		this->update_handler(this->mapping_data);
 	});
 
 	// populate the model with the mapping data
-	for (const auto &mapping : mapping_data->mappings) {
+	for (const auto &mapping : mapping_data.mappings) {
 		model.appendRow(QList<QStandardItem *>() << new QStandardItem(mapping.name.c_str())
 							 << new QStandardItem(""));
 		QComboBox *comboBox = createSourcesComboBox();
@@ -115,7 +115,7 @@ OutputMapping::OutputMapping(output_mapping_data *mapping_data_in,
 	connect(&model, &QStandardItemModel::itemChanged, [this](QStandardItem *item) {
 		// update mapping name
 		if (item->column() == 0) {
-			this->mapping_data->mappings[item->row()].name = item->text().toStdString();
+			this->mapping_data.mappings[item->row()].name = item->text().toStdString();
 		}
 	});
 }
@@ -151,9 +151,9 @@ QComboBox *OutputMapping::createSourcesComboBox()
 			output_name_without_prefix = output_name.substr(8);
 		}
 		// set the css_props of the selected row to the plainTextEdit_cssProps text
-		this->mapping_data->mappings[row].output_source = output_name_without_prefix;
+		this->mapping_data.mappings[row].output_source = output_name_without_prefix;
 		// call update_handler
-		this->update_handler();
+		this->update_handler(this->mapping_data);
 	});
 
 	return comboBox;
@@ -168,19 +168,19 @@ void OutputMapping::addMapping()
 	// set comboBox as the index widget of the last item in the model
 	ui->tableView->setIndexWidget(model.index(model.rowCount() - 1, 1), comboBox);
 	// add a new mapping to the mapping_data
-	this->mapping_data->mappings.push_back(output_mapping{
+	this->mapping_data.mappings.push_back(output_mapping{
 		"Mapping", none_internal_rendering, default_template_string, default_css_props});
 	// call update_handler
-	this->update_handler();
+	this->update_handler(this->mapping_data);
 }
 
 void OutputMapping::removeMapping()
 {
 	// remove the mapping from the mapping_data
-	this->mapping_data->mappings.erase(this->mapping_data->mappings.begin() +
-					   ui->tableView->currentIndex().row());
+	this->mapping_data.mappings.erase(this->mapping_data.mappings.begin() +
+					  ui->tableView->currentIndex().row());
 	// remove row from model
 	model.removeRow(ui->tableView->currentIndex().row());
 	// call update_handler
-	this->update_handler();
+	this->update_handler(this->mapping_data);
 }

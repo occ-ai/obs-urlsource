@@ -40,6 +40,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <memory>
 #include <regex>
 
+url_source_data::url_source_data() : output_mapping_mutex(), curl_mutex(), curl_thread_cv() {}
+
 const char *url_source_name(void *unused)
 {
 	UNUSED_PARAMETER(unused);
@@ -51,16 +53,6 @@ void url_source_destroy(void *data)
 	struct url_source_data *usd = reinterpret_cast<struct url_source_data *>(data);
 
 	stop_and_join_curl_thread(usd);
-
-	if (usd->curl_mutex) {
-		delete usd->curl_mutex;
-		usd->curl_mutex = nullptr;
-	}
-
-	if (usd->curl_thread_cv) {
-		delete usd->curl_thread_cv;
-		usd->curl_thread_cv = nullptr;
-	}
 
 	if (usd->frame.data[0] != nullptr) {
 		bfree(usd->frame.data[0]);
@@ -84,11 +76,12 @@ void save_request_info_on_settings(obs_data_t *settings,
 void *url_source_create(obs_data_t *settings, obs_source_t *source)
 {
 	void *p = bzalloc(sizeof(struct url_source_data));
-	struct url_source_data *usd = new (p) url_source_data;
+	struct url_source_data *usd = new (p) url_source_data();
 	usd->source = source;
 	usd->request_data = url_source_request_data();
 
 	usd->frame.data[0] = nullptr;
+	usd->frame.format = VIDEO_FORMAT_BGRA;
 
 	// get request data from settings
 	std::string serialized_request_data = obs_data_get_string(settings, "request_data");
@@ -113,10 +106,6 @@ void *url_source_create(obs_data_t *settings, obs_source_t *source)
 	usd->run_while_not_visible = obs_data_get_bool(settings, "run_while_not_visible");
 	usd->output_is_image_url = obs_data_get_bool(settings, "is_image_url");
 	usd->send_to_stream = obs_data_get_bool(settings, "send_to_stream");
-
-	// initialize the mutex
-	usd->curl_mutex = new std::mutex();
-	usd->curl_thread_cv = new std::condition_variable();
 
 	if (obs_source_active(source) && obs_source_showing(source)) {
 		// start the thread
@@ -218,18 +207,35 @@ bool output_mapping_and_template_button_click(obs_properties_t *, obs_property_t
 		reinterpret_cast<struct url_source_data *>(button_data);
 	// Open the Output Mapping dialog
 	std::unique_ptr<OutputMapping> output_mapping(new OutputMapping(
-		&(button_usd->output_mapping_data),
-		[button_usd]() {
+		button_usd->output_mapping_data,
+		[button_usd](const output_mapping_data &new_mapping_data) {
+			if (button_usd->source == nullptr) {
+				obs_log(LOG_ERROR, "Source is null");
+				return;
+			}
+
 			// Update the output mapping data from the settings
 			obs_data_t *settings = obs_source_get_settings(button_usd->source);
+			if (settings == nullptr) {
+				obs_log(LOG_ERROR, "Failed to get settings for source");
+				return;
+			}
+
 			std::string serialized_mapping_data =
-				serialize_output_mapping_data(button_usd->output_mapping_data);
+				serialize_output_mapping_data(new_mapping_data);
 			obs_data_set_string(settings, "output_mapping_data",
 					    serialized_mapping_data.c_str());
+
+			{
+				// lock the mapping data mutex
+				std::unique_lock<std::mutex> lock(button_usd->output_mapping_mutex);
+				button_usd->output_mapping_data = new_mapping_data;
+			}
+
+			obs_source_update(button_usd->source, settings);
+			obs_data_release(settings);
 		},
 		(QWidget *)obs_frontend_get_main_window()));
-	// lock the mapping data mutex
-	std::lock_guard<std::mutex> lock(button_usd->output_mapping_mutex);
 	output_mapping->exec();
 	return true;
 }
@@ -278,17 +284,20 @@ obs_properties_t *url_source_properties(void *data)
 
 void url_source_activate(void *data)
 {
-	struct url_source_data *usd = reinterpret_cast<struct url_source_data *>(data);
-	// Start the thread
-	{
-		std::lock_guard<std::mutex> lock(*(usd->curl_mutex));
-		if (usd->curl_thread_run) {
-			// Thread is already running
-			return;
-		}
-		usd->curl_thread_run = true;
+	if (data == nullptr) {
+		return;
 	}
-	usd->curl_thread = std::thread(curl_loop, usd);
+	struct url_source_data *usd = reinterpret_cast<struct url_source_data *>(data);
+	if (usd == nullptr) {
+		return;
+	}
+	if (usd->curl_thread_run) {
+		// Thread is already running
+		return;
+	}
+	usd->curl_thread_run = true;
+	std::thread new_curl_thread(curl_loop, usd);
+	usd->curl_thread.swap(new_curl_thread);
 }
 
 void url_source_deactivate(void *data)

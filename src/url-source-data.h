@@ -9,9 +9,10 @@
 #include <mutex>
 #include <thread>
 #include <condition_variable>
+#include <atomic>
 
 struct url_source_data {
-	obs_source_t *source;
+	obs_source_t *source = nullptr;
 	struct url_source_request_data request_data;
 	struct request_data_handler_response response;
 	struct output_mapping_data output_mapping_data;
@@ -22,14 +23,14 @@ struct url_source_data {
 	bool send_to_stream = false;
 	uint32_t render_width = 640;
 
-	// Text source to output the text to
 	std::mutex output_mapping_mutex;
-
-	// Use std for thread and mutex
-	std::mutex *curl_mutex = nullptr;
+	std::mutex curl_mutex;
 	std::thread curl_thread;
-	std::condition_variable *curl_thread_cv = nullptr;
-	bool curl_thread_run = false;
+	std::condition_variable curl_thread_cv;
+	std::atomic<bool> curl_thread_run = false;
+
+	// ctor must initialize mutex
+	explicit url_source_data();
 };
 
 #endif

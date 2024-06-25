@@ -12,12 +12,13 @@ namespace Ui {
 class OutputMapping;
 }
 
+typedef std::function<void(const output_mapping_data &)> update_handler_t;
 class OutputMapping : public QDialog {
 	Q_OBJECT
 
 public:
-	explicit OutputMapping(output_mapping_data *mapping_data_in,
-			       std::function<void()> update_handler, QWidget *parent = nullptr);
+	explicit OutputMapping(const output_mapping_data &mapping_data_in,
+			       update_handler_t update_handler, QWidget *parent = nullptr);
 	~OutputMapping();
 
 	OutputMapping(const OutputMapping &) = delete;
@@ -26,9 +27,9 @@ public:
 private:
 	Ui::OutputMapping *ui;
 	QStandardItemModel model;
-	output_mapping_data *mapping_data;
+	output_mapping_data mapping_data;
 	QComboBox *createSourcesComboBox();
-	std::function<void()> update_handler;
+	update_handler_t update_handler;
 
 private slots:
 	void addMapping();

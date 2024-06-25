@@ -132,12 +132,6 @@ void render_internal(const std::string &text, struct url_source_data *usd,
 	uint32_t width = usd->render_width;
 	uint32_t height = 0;
 
-	if (usd->frame.data[0] != nullptr) {
-		// Free the old render buffer
-		bfree(usd->frame.data[0]);
-		usd->frame.data[0] = nullptr;
-	}
-
 	// render the text with QTextDocument
 	render_text_with_qtextdocument(text, width, height, &renderBuffer, mapping.css_props);
 	// Update the frame
@@ -148,6 +142,9 @@ void render_internal(const std::string &text, struct url_source_data *usd,
 
 	// Send the frame
 	obs_source_output_video(usd->source, &usd->frame);
+
+	bfree(usd->frame.data[0]);
+	usd->frame.data[0] = nullptr;
 }
 
 std::string prepare_text_from_template(const output_mapping &mapping,
@@ -192,7 +189,16 @@ std::string prepare_text_from_template(const output_mapping &mapping,
 
 void output_with_mapping(const request_data_handler_response &response, struct url_source_data *usd)
 {
-	if (usd->output_mapping_data.mappings.empty()) {
+	std::vector<output_mapping> mappings;
+
+	{
+		// lock the mapping mutex to get a local copy of the mappings
+		std::unique_lock<std::mutex> lock(usd->output_mapping_mutex);
+		mappings = usd->output_mapping_data.mappings;
+	}
+
+	// if there are no mappings - log
+	if (mappings.empty()) {
 		// if there are no mappings - log
 		obs_log(LOG_WARNING, "No mappings found");
 		return;
@@ -200,7 +206,7 @@ void output_with_mapping(const request_data_handler_response &response, struct u
 
 	bool any_internal_rendering = false;
 	// iterate over the mappings and output the text with each one
-	for (const auto &mapping : usd->output_mapping_data.mappings) {
+	for (const auto &mapping : mappings) {
 		if (usd->request_data.output_type == "Audio (data)") {
 			if (!is_valid_output_source_name(mapping.output_source.c_str())) {
 				obs_log(LOG_ERROR, "Must select an output source for audio output");

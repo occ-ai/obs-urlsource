@@ -180,14 +180,17 @@ void put_inputs_on_json(url_source_request_data *request_data, CURL *curl,
 		std::string source_name = get_source_name_without_prefix(input.source);
 		// Check if the source is a text source
 		if (is_obs_source_text(source_name)) {
-			// Get text from OBS text source
-			obs_data_t *sourceSettings = obs_source_get_settings(
-				obs_get_source_by_name(source_name.c_str()));
-			const char *text = obs_data_get_string(sourceSettings, "text");
-			obs_data_release(sourceSettings);
+			obs_source_t *source = obs_get_source_by_name(source_name.c_str());
 			std::string textStr;
-			if (text != NULL) {
-				textStr = text;
+			if (source) {
+				// Get text from OBS text source
+				obs_data_t *sourceSettings = obs_source_get_settings(source);
+				const char *text = obs_data_get_string(sourceSettings, "text");
+				obs_data_release(sourceSettings);
+				obs_source_release(source);
+				if (text != NULL) {
+					textStr = text;
+				}
 			}
 
 			if (textStr.empty()) {
@@ -207,7 +210,7 @@ void put_inputs_on_json(url_source_request_data *request_data, CURL *curl,
 					// check if the header is Content-Type case insensitive using regex
 					if (std::regex_search(header.first, header_regex) &&
 					    std::regex_search(header.second, header_value_regex)) {
-						nlohmann::json tmp = text;
+						nlohmann::json tmp = textStr;
 						textStr = tmp.dump();
 						// remove '"' from the beginning and end of the string
 						textStr = textStr.substr(1, textStr.size() - 2);
